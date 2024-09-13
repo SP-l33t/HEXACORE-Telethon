@@ -30,6 +30,7 @@ else
 	echo "Skipping .env copying"
 fi
 
+git fetch
 git pull
 
 echo "Starting the bot..."

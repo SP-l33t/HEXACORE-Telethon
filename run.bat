@@ -5,6 +5,7 @@ if not exist venv (
     python -m venv venv
 )
 
+git fetch
 git pull
 
 echo Activating virtual environment...

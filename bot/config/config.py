@@ -22,6 +22,10 @@ class Settings(BaseSettings):
 
     USE_PROXY_FROM_FILE: bool = False
 
+    DEVICE_PARAMS: bool = False
+
+    DEBUG_LOGGING: bool = False
+
 
 settings = Settings()
 

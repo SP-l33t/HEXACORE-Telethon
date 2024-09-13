@@ -11,15 +11,15 @@
 > 🇷 🇺 README in russian available [here](README-RU.md)
 
 ## Features  
-|                          Feature                          | Supported |
-|:---------------------------------------------------------:|:---------:|
-|                      Multithreading                       |     ✅     |
-|                 Proxy binding to session                  |     ✅     |
-|                       Auto tap cube                       |     ✅     |
-|                      Auto play games                      |     ✅     |
-|                  Auto missions complete                   |     ✅     |
-|                       Auto referral                       |     ✅     |
-| Support for tdata / pyrogram .session / telethon .session |     ✅     |
+|            Feature            | Supported |
+|:-----------------------------:|:---------:|
+|        Multithreading         |     ✅     |
+|   Proxy binding to session    |     ✅     |
+|         Auto tap cube         |     ✅     |
+|        Auto play games        |     ✅     |
+|    Auto missions complete     |     ✅     |
+|         Auto referral         |     ✅     |
+| Support for telethon .session |     ✅     |
 
 
 ## [Settings](https://github.com/HiddenCodeDevs/HEXACOREbot/blob/main/.env-example/)
