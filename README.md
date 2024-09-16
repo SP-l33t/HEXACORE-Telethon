@@ -37,6 +37,8 @@
 |     **AUTO_BUY_PASS**      |                        Auto buys beneficial tap pass for better earning (default - True)                        |
 |         **REF_ID**         | Will allow you to automatically referral your alts to main (default - None, please write here your telegram id) |
 |  **USE_PROXY_FROM_FILE**   |                  Whether to use a proxy from the `bot/config/proxies.txt` file (True / False)                   |
+|     **DEVICE_PARAMS**      |           Enter device settings to make the telegram session look more realistic  (True / **False**)            |
+|     **DEBUG_LOGGING**      |                      Whether to log error's tracebacks to /logs folder (True / **False**)                       |
 
 ## Quick Start 📚
 

@@ -4,7 +4,6 @@ import aiohttp
 import asyncio
 import os
 import random
-import string
 from urllib.parse import unquote
 from aiocfscrape import CloudflareScraper
 from aiohttp_proxy import ProxyConnector
@@ -636,4 +635,4 @@ async def run_tapper(tg_client: TelegramClient):
         await Tapper(tg_client=tg_client).run()
     except InvalidSession:
         session_name, _ = os.path.splitext(os.path.basename(tg_client.session.filename))
-        logger.error(f"{tg_client.name} | Invalid Session")
+        logger.error(f"{session_name} | Invalid Session")
