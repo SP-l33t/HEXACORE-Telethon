@@ -17,9 +17,8 @@ from telethon.functions import messages, contacts
 from .agents import generate_random_user_agent
 from .headers import *
 from bot.config import settings
-from bot.utils import logger, proxy_utils, config_utils
+from bot.utils import logger, log_error, proxy_utils, config_utils, CONFIG_PATH
 from bot.exceptions import InvalidSession
-
 
 HEXA_DOMAIN = "https://ago-api.hexacore.io"
 
@@ -28,7 +27,7 @@ class Tapper:
     def __init__(self, tg_client: TelegramClient):
         self.session_name, _ = os.path.splitext(os.path.basename(tg_client.session.filename))
         self.tg_client = tg_client
-        self.config = config_utils.get_session_config(self.session_name)
+        self.config = config_utils.get_session_config(self.session_name, CONFIG_PATH)
         self.proxy = self.config.get('proxy', None)
         self.user_id = 0
         self.username = None
@@ -40,16 +39,15 @@ class Tapper:
         self.headers['User-Agent'] = self.check_user_agent()
         self.headers.update(**get_sec_ch_ua(self.headers.get('User-Agent', '')))
 
-    @staticmethod
-    async def generate_random_user_agent():
-        return generate_random_user_agent(device_type='android', browser_type='chrome')
+    def log_message(self, message) -> str:
+        return f"<light-yellow>{self.session_name}</light-yellow> | {message}"
 
     def check_user_agent(self):
         user_agent = self.config.get('user_agent')
         if not user_agent:
             user_agent = generate_random_user_agent()
             self.config['user_agent'] = user_agent
-            config_utils.update_config_file(self.session_name, self.config)
+            config_utils.update_config_file(self.session_name, self.config, CONFIG_PATH)
 
         return user_agent
 
@@ -78,8 +76,8 @@ class Tapper:
                 except FloodWaitError as fl:
                     fls = fl.seconds
 
-                    logger.warning(f"<light-yellow>{self.session_name}</light-yellow> | FloodWait {fl}")
-                    logger.info(f"<light-yellow>{self.session_name}</light-yellow> | Sleep {fls}s")
+                    logger.warning(self.log_message(f"FloodWait {fl}"))
+                    logger.info(self.log_message(f"Sleep {fls}s"))
 
                     await asyncio.sleep(fls + 3)
 
@@ -120,7 +118,7 @@ class Tapper:
             return None
 
         except Exception as error:
-            logger.error(f"<light-yellow>{self.session_name}</light-yellow> | Unknown error during Authorization: {error}")
+            log_error(self.log_message(f"Unknown error during Authorization: {error}"))
             await asyncio.sleep(delay=3)
             return None
 
@@ -133,7 +131,7 @@ class Tapper:
             response_json = await response.json()
             return response_json.get('token')
         except Exception as error:
-            logger.error(f"<light-yellow>{self.session_name}</light-yellow> | Error while auth {error}")
+            log_error(self.log_message(f"Error while auth {error}"))
 
     async def register(self, http_client: aiohttp.ClientSession, init_data):
         try:
@@ -163,14 +161,14 @@ class Tapper:
                     return True
                 if response.status not in (200, 201, 409):
                     logger.error(f"<light-yellow>{self.session_name}</light-yellow> | Something wrong with "
-                                    f"register! {response.status}")
+                                 f"register! {response.status}")
                     return False
             else:
-                logger.error(f"<light-yellow>{self.session_name}</light-yellow> | Error while register, "
-                                f"please add username to telegram account, bot will not work!!!")
+                log_error(self.log_message(f"Error while register, please add username to telegram account"))
                 return False
         except Exception as error:
-            logger.error(f"<light-yellow>{self.session_name}</light-yellow> | Error while register {error}")
+            log_error(self.log_message(f"Error while register {error}"))
+            return False
 
     async def get_taps(self, http_client: aiohttp.ClientSession):
         try:
@@ -180,7 +178,7 @@ class Tapper:
             boosters = response_json.get('available_boosters')
             return taps, boosters
         except Exception as error:
-            logger.error(f"<light-yellow>{self.session_name}</light-yellow> | Error while get taps {error}")
+            log_error(self.log_message(f"Error while get taps {error}"))
 
     async def get_balance(self, http_client: aiohttp.ClientSession):
         try:
@@ -188,7 +186,7 @@ class Tapper:
             response_json = await response.json()
             return response_json
         except Exception as error:
-            logger.error(f"<light-yellow>{self.session_name}</light-yellow> | Error while get balance {error}")
+            log_error(self.log_message(f"Error while get balance {error}"))
 
     async def do_taps(self, http_client: aiohttp.ClientSession, taps):
         try:
@@ -203,7 +201,7 @@ class Tapper:
             return True
 
         except Exception as error:
-            logger.error(f"<light-yellow>{self.session_name}</light-yellow> | Error while do taps {error}")
+            log_error(self.log_message(f"Error while do taps {error}"))
 
     async def use_booster(self, http_client: aiohttp.ClientSession):
         try:
@@ -212,7 +210,7 @@ class Tapper:
             success = resp_json.get('success')
             return success
         except Exception as error:
-            logger.error(f"<light-yellow>{self.session_name}</light-yellow> | use booster error - {error}")
+            log_error(self.log_message(f"Error while trying to use buster - {error}"))
 
     async def get_missions(self, http_client: aiohttp.ClientSession):
         try:
@@ -223,7 +221,7 @@ class Tapper:
 
             return incomplete_mission_ids
         except Exception as error:
-            logger.error(f"<light-yellow>{self.session_name}</light-yellow> | Error while get missions {error}")
+            log_error(self.log_message(f"Error while get missions {error}"))
 
     async def do_mission(self, http_client: aiohttp.ClientSession, id):
         try:
@@ -235,7 +233,7 @@ class Tapper:
                 return False
             return True
         except Exception as error:
-            logger.error(f"<light-yellow>{self.session_name}</light-yellow> | Error while doing missions {error}")
+            log_error(self.log_message(f"Error while doing missions {error}"))
 
     async def get_level_info(self, http_client: aiohttp.ClientSession):
         try:
@@ -247,7 +245,7 @@ class Tapper:
             new_lvl = response_json.get('next_lvl', None)
             return lvl, upgrade_available, upgrade_price, new_lvl
         except Exception as error:
-            logger.error(f"<light-yellow>{self.session_name}</light-yellow> | Error while get level {error}")
+            log_error(self.log_message(f"Error while get level {error}"))
 
     async def level_up(self, http_client: aiohttp.ClientSession):
         try:
@@ -257,7 +255,7 @@ class Tapper:
                 return False
             return True
         except Exception as error:
-            logger.error(f"<light-yellow>{self.session_name}</light-yellow> | Error while up lvl {error}")
+            log_error(self.log_message(f"Error while up lvl {error}"))
 
     async def play_game_1(self, http_client: aiohttp.ClientSession):
         try:
@@ -274,7 +272,7 @@ class Tapper:
                 return False
 
         except Exception as error:
-            logger.error(f"<light-yellow>{self.session_name}</light-yellow> | Error while play game 1 {error}")
+            log_error(self.log_message(f"Error while play game 1 {error}"))
 
     async def play_game_2(self, http_client: aiohttp.ClientSession):
         try:
@@ -291,7 +289,7 @@ class Tapper:
                 return False
 
         except Exception as error:
-            logger.error(f"<light-yellow>{self.session_name}</light-yellow> | Error while play game 2 {error}")
+            log_error(self.log_message(f"Error while play game 2 {error}"))
 
     async def play_game_3(self, http_client: aiohttp.ClientSession):
         try:
@@ -313,11 +311,10 @@ class Tapper:
                                                    json=json, ssl=False)
 
                 if response1.status in (200, 201):
-                    logger.info(f"<light-yellow>{self.session_name}</light-yellow> | Done {i} lvl in dirty job")
+                    logger.info(self.log_message(f"Done {i} lvl in dirty job"))
 
                 elif response1.status == 400:
-                    logger.warning(f"<light-yellow>{self.session_name}</light-yellow> | Reached max games for today in "
-                                   f"dirty job")
+                    logger.warning(self.log_message(f"Reached max games for today in dirty job"))
                     break
 
                 await asyncio.sleep(random.uniform(1, 1.5))
@@ -326,8 +323,7 @@ class Tapper:
             owned_items = response_json.get('playerState').get('hubItems')
             available_items = response_json.get('gameConfig').get('hubItems')
 
-            logger.info(f"<light-yellow>{self.session_name}</light-yellow> | Trying to upgrade items in dirty job, "
-                        f"wait a bit")
+            logger.info(self.log_message(f"Trying to upgrade items in dirty job, wait a bit"))
 
             old_auth = http_client.headers['Authorization']
 
@@ -353,15 +349,14 @@ class Tapper:
                             json=purchase_data, ssl=False)
 
                         if purchase_response.status in (200, 201):
-                            logger.success(f"<light-yellow>{self.session_name}</light-yellow> | "
-                                           f"Purchased new item {item_name} for {price} currency in dirty job game, "
-                                           f"got {ago} AGO")
+                            logger.success(self.log_message(f"Purchased new item {item_name} for {price} currency "
+                                                            f"in dirty job game, got {ago} AGO"))
                             balance -= price
                             owned_items[item_name] = {'level': upgrade_level_info[0]}
                         else:
-                            logger.warning(
+                            logger.warning(self.log_message(
                                 f"Failed to purchase new item {item_name}. Status code: {purchase_response.status}, text:"
-                                f" {await purchase_response.text()}, headers - \n{http_client.headers}")
+                                f" {await purchase_response.text()}, headers - \n{http_client.headers}"))
 
                 elif item_name in owned_items:
                     current_level = int(owned_items[item_name]['level'])
@@ -389,21 +384,20 @@ class Tapper:
                                 json=purchase_data, ssl=False)
 
                             if purchase_response.status in (200, 201):
-                                logger.success(f"<light-yellow>{self.session_name}</light-yellow> | "
-                                               f"Purchased upgrade for {item_name} for {price} currency in dirty job "
-                                               f"game, got {ago} AGO")
+                                logger.success(self.log_message(f"Purchased upgrade for {item_name} for {price} "
+                                                                f"currency in dirty job game, got {ago} AGO"))
                                 balance -= price
                                 owned_items[item_name]['level'] = level
                             else:
-                                logger.warning(
+                                logger.warning(self.log_message(
                                     f"Failed to purchase upgrade for {item_name}. Status code: "
-                                    f"{purchase_response.status}")
+                                    f"{purchase_response.status}"))
 
                 await asyncio.sleep(random.uniform(0.5, 1))
 
             http_client.headers['Authorization'] = old_auth
         except Exception as error:
-            logger.error(f"<light-yellow>{self.session_name}</light-yellow> | Error while play game 3 {error}")
+            log_error(self.log_message(f"Error while play game 3 {error}"))
 
     async def play_game_5(self, http_client: aiohttp.ClientSession):
         try:
@@ -421,7 +415,7 @@ class Tapper:
                 return False
 
         except Exception as error:
-            logger.error(f"<light-yellow>{self.session_name}</light-yellow> | Error while play game 5 {error}")
+            log_error(self.log_message(f"Error while play game 5 {error}"))
 
     async def play_game_6(self, http_client: aiohttp.ClientSession):
         try:
@@ -443,12 +437,12 @@ class Tapper:
 
             limit = response_json.get('gameConfig').get('freeSessionGameLevelsMaxCount')
             if limit == 0:
-                logger.info(f"<light-yellow>{self.session_name}</light-yellow> | Hurt me game cooldown")
+                logger.info(self.log_message("Hurt me game cooldown"))
 
             while limit != 0:
                 json = {"type": "EndGameLevelEvent",
                         "level": int(current_level),
-                        "agoClaimed": float(99.75+random.randint(1, 5)),
+                        "agoClaimed": float(99.75 + random.randint(1, 5)),
                         "boosted": False,
                         "transactionId": None}
 
@@ -456,10 +450,9 @@ class Tapper:
                                                    json=json, ssl=False)
 
                 if response1.status in (200, 201):
-                    logger.info(f"<light-yellow>{self.session_name}</light-yellow> | Done {current_level} lvl in "
-                                f"Hurt me please")
+                    logger.info(self.log_message(f"Done {current_level} lvl in Hurt me please"))
                 else:
-                    logger.info(f"<light-yellow>{self.session_name}</light-yellow> | Hurt me game cooldown")
+                    logger.info(self.log_message("Hurt me game cooldown"))
                     break
                 current_level += 1
                 limit -= 1
@@ -469,8 +462,7 @@ class Tapper:
             http_client.headers['Authorization'] = old_auth
 
         except Exception as error:
-            logger.error(f"<light-yellow>{self.session_name}</light-yellow> | Error while play game Hurt me please"
-                         f" {error}")
+            log_error(self.log_message(f"Error while play game Hurt me please {error}"))
 
     async def daily_checkin(self, http_client: aiohttp.ClientSession):
         try:
@@ -492,7 +484,7 @@ class Tapper:
             else:
                 return False, None
         except Exception as error:
-            logger.error(f"<light-yellow>{self.session_name}</light-yellow> | Error while daily reward {error}")
+            log_error(self.log_message(f"Error while daily reward {error}"))
 
     async def get_tap_passes(self, http_client: aiohttp.ClientSession):
         try:
@@ -500,7 +492,7 @@ class Tapper:
             response_json = await response.json()
             return response_json
         except Exception as error:
-            logger.error(f"<light-yellow>{self.session_name}</light-yellow> | Error while getting tap passes {error}")
+            log_error(self.log_message(f"Error while getting tap passes {error}"))
 
     async def buy_tap_pass(self, http_client: aiohttp.ClientSession):
         try:
@@ -512,16 +504,16 @@ class Tapper:
                 return False
             return True
         except Exception as error:
-            logger.error(f"<light-yellow>{self.session_name}</light-yellow> | Error while getting tap passes {error}")
+            log_error(self.log_message(f"Error while getting tap passes {error}"))
 
     async def check_proxy(self, http_client: aiohttp.ClientSession, proxy: str) -> bool:
         try:
             response = await http_client.get(url='https://httpbin.org/ip', timeout=aiohttp.ClientTimeout(5))
             ip = (await response.json()).get('origin')
-            logger.info(f"<light-yellow>{self.session_name}</light-yellow> | Proxy IP: {ip}")
+            logger.info(self.log_message(f"Proxy IP: {ip}"))
             return True
         except Exception as error:
-            logger.error(f"<light-yellow>{self.session_name}</light-yellow> | Proxy: {proxy} | Error: {error}")
+            log_error(self.log_message(f"Proxy: {proxy} | Error: {error}"))
             return False
 
     async def run(self) -> None:
@@ -551,27 +543,24 @@ class Tapper:
             try:
                 status = await self.register(http_client=http_client, init_data=init_data)
                 if status is True:
-                    logger.success(f"<light-yellow>{self.session_name}</light-yellow> | Successfully account register")
+                    logger.success(self.log_message(f"Successfully account register"))
                 elif status == 'registered':
                     pass
 
                 info = await self.get_balance(http_client=http_client)
                 balance = info.get("balance") or 0
-                logger.info(f'<light-yellow>{self.session_name}</light-yellow> | Balance: {balance}')
+                logger.info(self.log_message(f'Balance: {balance}'))
 
                 status, next_day = await self.daily_checkin(http_client=http_client)
                 if status is True and next_day is not None:
-                    logger.success(f'<light-yellow>{self.session_name}</light-yellow> | Daily checkin claimed, '
-                                   f'streak - {next_day}')
+                    logger.success(self.log_message(f'Daily checkin claimed, streak - {next_day}'))
 
                 if settings.AUTO_BUY_PASS:
-                    logger.critical(f"<light-yellow>{self.session_name}</light-yellow> | Passes wont work, tg bot issue, not buying")
-                    #data = await self.get_tap_passes(http_client=http_client)
-                    #if data.get('active_tap_pass') is None and balance >= 1000:
-                    #    status = await self.buy_tap_pass(http_client=http_client)
-                    #    if status:
-                    #        logger.success(
-                    #            f'<light-yellow>{self.session_name}</light-yellow> | Bought taps pass for 7 days')
+                    data = await self.get_tap_passes(http_client=http_client)
+                    if data.get('active_tap_pass') is None and balance >= 1000:
+                        status = await self.buy_tap_pass(http_client=http_client)
+                        if status:
+                            logger.success(self.log_message(f'Bought taps pass for 7 days'))
 
                 if settings.AUTO_TAP:
                     taps, boosters = await self.get_taps(http_client=http_client)
@@ -579,16 +568,14 @@ class Tapper:
                         if boosters != 0:
                             status = await self.use_booster(http_client)
                             if status:
-                                logger.success(f"<light-yellow>{self.session_name}</light-yellow> | Used booster")
+                                logger.success(self.log_message(f"Used booster"))
 
-                        logger.info(f"<light-yellow>{self.session_name}</light-yellow> | You have {taps} taps "
-                                    f"available, starting clicking, please wait a bit..")
+                        logger.info(self.log_message(f"{taps} taps available, starting clicking, please.."))
                         status = await self.do_taps(http_client=http_client, taps=taps)
                         if status:
-                            logger.success(f"<light-yellow>{self.session_name}</light-yellow> | Successfully tapped "
-                                           f"{taps} times")
+                            logger.success(self.log_message(f"Successfully tapped {taps} times"))
                         else:
-                            logger.warning(f"<light-yellow>{self.session_name}</light-yellow> | Problem with taps")
+                            logger.warning(self.log_message(f"Problem with taps"))
 
                 if settings.AUTO_MISSION:
                     missions = await self.get_missions(http_client=http_client)
@@ -596,8 +583,7 @@ class Tapper:
                     for mission in missions:
                         status = await self.do_mission(http_client=http_client, id=mission)
                         if status:
-                            logger.info(f"<light-yellow>{self.session_name}</light-yellow> | "
-                                        f"Successfully done mission {mission}")
+                            logger.info(self.log_message(f"Successfully done mission {mission}"))
                         await asyncio.sleep(random.uniform(0.5, 1))
 
                 if settings.AUTO_LVL_UP:
@@ -608,37 +594,30 @@ class Tapper:
                         if new_lvl:
                             status = await self.level_up(http_client=http_client)
                             if status:
-                                logger.success(f"<light-yellow>{self.session_name}</light-yellow> | "
-                                               f"Successfully level up, now {new_lvl} lvl available")
+                                logger.success(self.log_message(f"Successfully level up, now {new_lvl} lvl available"))
                         else:
-                            logger.info(f"<light-yellow>{self.session_name}</light-yellow> | You reached max lvl - 25")
+                            logger.info(self.log_message(f"You reached max lvl - 25"))
 
                 if settings.PLAY_WALK_GAME:
                     status = await self.play_game_1(http_client=http_client)
                     if status:
-                        logger.info(f"<light-yellow>{self.session_name}</light-yellow> | "
-                                    f"Successfully played walk game")
+                        logger.info(self.log_message(f"Successfully played walk game"))
                     else:
-                        logger.info(f"<light-yellow>{self.session_name}</light-yellow> | "
-                                    f"Walk game cooldown")
+                        logger.info(self.log_message(f"Walk game cooldown"))
 
                 if settings.PLAY_SHOOT_GAME:
                     status = await self.play_game_2(http_client=http_client)
                     if status:
-                        logger.info(f"<light-yellow>{self.session_name}</light-yellow> | "
-                                    f"Successfully played shoot game")
+                        logger.info(self.log_message(f"Successfully played shoot game"))
                     else:
-                        logger.info(f"<light-yellow>{self.session_name}</light-yellow> | "
-                                    f"Shoot game cooldown")
+                        logger.info(self.log_message(f"Shoot game cooldown"))
 
                 if settings.PLAY_RPG_GAME:
                     status = await self.play_game_5(http_client=http_client)
                     if status:
-                        logger.info(f"<light-yellow>{self.session_name}</light-yellow> | "
-                                    f"Successfully played RPG game")
+                        logger.info(self.log_message(f"Successfully played RPG game"))
                     else:
-                        logger.info(f"<light-yellow>{self.session_name}</light-yellow> | "
-                                    f"RPG game cooldown")
+                        logger.info(self.log_message(f"RPG game cooldown"))
 
                 if settings.PLAY_DIRTY_JOB_GAME:
                     await self.play_game_3(http_client=http_client)
@@ -646,7 +625,7 @@ class Tapper:
                 if settings.PLAY_HURTMEPLEASE_GAME:
                     await self.play_game_6(http_client=http_client)
 
-                logger.info(f"<light-yellow>{self.session_name}</light-yellow> | Going sleep 1 hour")
+                logger.info(self.log_message(f"Going sleep 1 hour"))
 
                 await asyncio.sleep(3600)
 
@@ -654,7 +633,7 @@ class Tapper:
                 raise error
 
             except Exception as error:
-                logger.error(f"<light-yellow>{self.session_name}</light-yellow> | Unknown error: {error}")
+                log_error(self.log_message(f"Unknown error: {error}"))
                 await asyncio.sleep(delay=3)
                 continue
 
@@ -664,4 +643,4 @@ async def run_tapper(tg_client: TelegramClient):
         await Tapper(tg_client=tg_client).run()
     except InvalidSession:
         session_name, _ = os.path.splitext(os.path.basename(tg_client.session.filename))
-        logger.error(f"{session_name} | Invalid Session")
+        logger.error(f"<light-yellow>{session_name}</light-yellow> | Invalid Session")

@@ -6,6 +6,7 @@ class Settings(BaseSettings):
 
     API_ID: int
     API_HASH: str
+    GLOBAL_CONFIG_PATH: str = "TG_FARM"
 
     AUTO_TAP: bool = True
     AUTO_MISSION: bool = True
