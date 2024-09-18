@@ -51,7 +51,7 @@ class Tapper:
 
         return user_agent
 
-    async def get_tg_web_data(self) -> str | None:
+    async def get_tg_web_data(self) -> [str | None, str | None]:
         if self.proxy:
             proxy = Proxy.from_str(self.proxy)
             proxy_dict = proxy_utils.to_telethon_proxy(proxy)
@@ -112,17 +112,18 @@ class Tapper:
 
             if self.tg_client.is_connected():
                 await self.tg_client.disconnect()
-                self.lock.release()
+                if self.lock.acquired:
+                    self.lock.release()
 
-            return tg_web_data
+            return tg_web_data, ref_id
 
         except InvalidSession as error:
-            return None
+            return None, None
 
         except Exception as error:
             log_error(self.log_message(f"Unknown error during Authorization: {error}"))
             await asyncio.sleep(delay=3)
-            return None
+            return None, None
 
     async def auth(self, http_client: aiohttp.ClientSession, init_data):
         try:
@@ -135,35 +136,33 @@ class Tapper:
         except Exception as error:
             log_error(self.log_message(f"Error while auth {error}"))
 
-    async def register(self, http_client: aiohttp.ClientSession, init_data):
+    async def register(self, http_client: aiohttp.ClientSession, ref_id, init_data):
         try:
             json = {}
 
             if http_client.headers['Authorization'] is None or http_client.headers['Authorization'] == '':
                 http_client.headers['Authorization'] = await self.auth(http_client=http_client, init_data=init_data)
 
-            if settings.REF_ID == '':
-                referer_id = "525256526"
-            else:
-                referer_id = str(settings.REF_ID)
-
             if self.username != '':
                 json = {
                     "user_id": int(self.user_id),  # Ensure user_id is a string
                     "fullname": f"{str(self.fullname)}",
                     "username": f"{str(self.username)}",
-                    "referer_id": f"{str(referer_id)}"
+                    "referer_id": f"{str(ref_id)}"
                 }
-                response = await http_client.post(url=f'{HEXA_DOMAIN}/api/create-user', json=json,
-                                                  ssl=False)
-                # print(await response.json())
+                response = await http_client.get(url=f'{HEXA_DOMAIN}/api/user-exists?country_code=null',ssl=False)
+                res = await response.json()
+                if res.get('exists') is True:
+                    return True
+
+                response = await http_client.post(url=f'{HEXA_DOMAIN}/api/create-user', json=json, ssl=False)
+
                 if response.status == 409:
                     return 'registered'
                 if response.status in (200, 201):
                     return True
                 if response.status not in (200, 201, 409):
-                    logger.error(f"<light-yellow>{self.session_name}</light-yellow> | Something wrong with "
-                                 f"register! {response.status}")
+                    log_error(self.log_message(f"Something wrong with register! {response.status}"))
                     return False
             else:
                 log_error(self.log_message(f"Error while register, please add username to telegram account"))
@@ -531,7 +530,7 @@ class Tapper:
         else:
             http_client = CloudflareScraper(headers=self.headers)
 
-        init_data = await self.get_tg_web_data()
+        init_data, ref_id = await self.get_tg_web_data()
 
         if not init_data:
             if not http_client.closed:
@@ -543,11 +542,7 @@ class Tapper:
         http_client.headers['Authorization'] = await self.auth(http_client=http_client, init_data=init_data)
         while True:
             try:
-                status = await self.register(http_client=http_client, init_data=init_data)
-                if status is True:
-                    logger.success(self.log_message(f"Successfully account register"))
-                elif status == 'registered':
-                    pass
+                await self.register(http_client=http_client, init_data=init_data, ref_id=ref_id)
 
                 info = await self.get_balance(http_client=http_client)
                 balance = info.get("balance") or 0
@@ -647,4 +642,5 @@ async def run_tapper(tg_client: TelegramClient):
     except InvalidSession as e:
         logger.error(runner.log_message(f"Invalid Session: {e}"))
     finally:
-        runner.lock.release()
+        if runner.lock.acquired:
+            runner.lock.release()
