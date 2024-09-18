@@ -7,3 +7,4 @@ loguru==0.7.2
 python-socks==2.5.1
 pydantic-settings==2.4.0
 Telethon==1.36.0
+fasteners
