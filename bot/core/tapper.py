@@ -227,8 +227,7 @@ class Tapper:
     async def do_mission(self, http_client: aiohttp.ClientSession, id):
         try:
             json = {'missionId': id}
-            response = await http_client.post(url=f'{HEXA_DOMAIN}/api/mission-complete', json=json,
-                                              ssl=False)
+            response = await http_client.post(url=f'{HEXA_DOMAIN}/api/mission-complete', json=json, ssl=False)
             response_json = await response.json()
             if not response_json.get('success'):
                 return False
@@ -356,8 +355,8 @@ class Tapper:
                             owned_items[item_name] = {'level': upgrade_level_info[0]}
                         else:
                             logger.warning(self.log_message(
-                                f"Failed to purchase new item {item_name}. Status code: {purchase_response.status}, text:"
-                                f" {await purchase_response.text()}, headers - \n{http_client.headers}"))
+                                f"Failed to purchase new item {item_name}. Status code: {purchase_response.status}, "
+                                f"text: {await purchase_response.text()}, headers - \n{http_client.headers}"))
 
                 elif item_name in owned_items:
                     current_level = int(owned_items[item_name]['level'])
@@ -518,6 +517,10 @@ class Tapper:
             return False
 
     async def run(self) -> None:
+        random_delay = random.randint(1, settings.RANDOM_DELAY_IN_RUN)
+        logger.info(self.log_message(f"Bot will start in <ly>{random_delay}s</ly>"))
+        await asyncio.sleep(random_delay)
+
         proxy_conn = None
         if self.proxy:
             proxy_conn = ProxyConnector().from_url(self.proxy)

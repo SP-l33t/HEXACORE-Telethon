@@ -19,6 +19,8 @@ class Settings(BaseSettings):
 
     AUTO_BUY_PASS: bool = True
 
+    RANDOM_DELAY_IN_RUN: int = 30
+
     REF_ID: str = ''
 
     USE_PROXY_FROM_FILE: bool = False
