@@ -1,12 +1,11 @@
 @echo off
+title Hexacore
+set firstRun=true
 
 if not exist venv (
     echo Creating virtual environment...
     python -m venv venv
 )
-
-git fetch
-git pull
 
 echo Activating virtual environment...
 call venv\Scripts\activate
@@ -32,9 +31,17 @@ if not exist .env (
 	echo Skipping .env copying
 )
 
-echo Starting the bot...
-python main.py
+git fetch
+git pull
 
-echo done
-echo PLEASE EDIT .ENV FILE
-pause
+echo Starting the bot...
+:loop
+if "%firstRun%"=="true" (
+    python main.py
+    set firstRun=false
+) else (
+    python main.py -a 1
+)
+echo Restarting the program in 10 seconds...
+timeout /t 10 /nobreak >nul
+goto :loop
