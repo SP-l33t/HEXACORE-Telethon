@@ -47,7 +47,7 @@ class Tapper:
         if not user_agent:
             user_agent = generate_random_user_agent()
             self.config['user_agent'] = user_agent
-            config_utils.update_config_file(self.session_name, self.config, CONFIG_PATH)
+            config_utils.update_session_config_in_file(self.session_name, self.config, CONFIG_PATH)
 
         return user_agent
 
@@ -128,20 +128,23 @@ class Tapper:
     async def auth(self, http_client: aiohttp.ClientSession, init_data):
         try:
             json = {"data": init_data}
-            response = await http_client.post(url=f'{HEXA_DOMAIN}/api/app-auth', json=json,
-                                              ssl=False)
+            response = await http_client.post(url=f'{HEXA_DOMAIN}/api/app-auth', json=json)
             response.raise_for_status()
             response_json = await response.json()
             return response_json.get('token')
         except Exception as error:
             log_error(self.log_message(f"Error while auth {error}"))
+            return
 
     async def register(self, http_client: aiohttp.ClientSession, ref_id, init_data):
         try:
             json = {}
 
-            if http_client.headers['Authorization'] is None or http_client.headers['Authorization'] == '':
-                http_client.headers['Authorization'] = await self.auth(http_client=http_client, init_data=init_data)
+            if not http_client.headers.get('Authorization'):
+                auth_token = await self.auth(http_client=http_client, init_data=init_data)
+                if not auth_token:
+                    raise ConnectionError('Failed to get auth token')
+                http_client.headers['Authorization'] = auth_token
 
             if self.username != '':
                 json = {
@@ -150,12 +153,12 @@ class Tapper:
                     "username": f"{str(self.username)}",
                     "referer_id": f"{str(ref_id)}"
                 }
-                response = await http_client.get(url=f'{HEXA_DOMAIN}/api/user-exists?country_code=null',ssl=False)
+                response = await http_client.get(url=f'{HEXA_DOMAIN}/api/user-exists?country_code=null')
                 res = await response.json()
                 if res.get('exists') is True:
                     return True
 
-                response = await http_client.post(url=f'{HEXA_DOMAIN}/api/create-user', json=json, ssl=False)
+                response = await http_client.post(url=f'{HEXA_DOMAIN}/api/create-user', json=json)
 
                 if response.status == 409:
                     return 'registered'
@@ -167,13 +170,15 @@ class Tapper:
             else:
                 log_error(self.log_message(f"Error while register, please add username to telegram account"))
                 return False
+        except ConnectionError as error:
+            raise error
         except Exception as error:
             log_error(self.log_message(f"Error while register {error}"))
             return False
 
     async def get_taps(self, http_client: aiohttp.ClientSession):
         try:
-            response = await http_client.get(url=f'{HEXA_DOMAIN}/api/available-taps', ssl=False)
+            response = await http_client.get(url=f'{HEXA_DOMAIN}/api/available-taps')
             response_json = await response.json()
             taps = response_json.get('available_taps')
             boosters = response_json.get('available_boosters')
@@ -183,7 +188,7 @@ class Tapper:
 
     async def get_balance(self, http_client: aiohttp.ClientSession):
         try:
-            response = await http_client.get(url=f'{HEXA_DOMAIN}/api/balance/{self.user_id}', ssl=False)
+            response = await http_client.get(url=f'{HEXA_DOMAIN}/api/balance/{self.user_id}')
             response_json = await response.json()
             return response_json
         except Exception as error:
@@ -192,8 +197,7 @@ class Tapper:
     async def do_taps(self, http_client: aiohttp.ClientSession, taps):
         try:
             json = {"taps": taps}
-            response = await http_client.post(url=f'{HEXA_DOMAIN}/api/mining-complete', json=json,
-                                              ssl=False)
+            response = await http_client.post(url=f'{HEXA_DOMAIN}/api/mining-complete', json=json)
             response_json = await response.json()
 
             if not response_json.get('success'):
@@ -206,7 +210,7 @@ class Tapper:
 
     async def use_booster(self, http_client: aiohttp.ClientSession):
         try:
-            response = await http_client.post(f"{HEXA_DOMAIN}/api/activate-boosters", ssl=False)
+            response = await http_client.post(f"{HEXA_DOMAIN}/api/activate-boosters")
             resp_json = await response.json()
             success = resp_json.get('success')
             return success
@@ -215,7 +219,7 @@ class Tapper:
 
     async def get_missions(self, http_client: aiohttp.ClientSession):
         try:
-            response = await http_client.get(url=f'{HEXA_DOMAIN}/api/missions', ssl=False)
+            response = await http_client.get(url=f'{HEXA_DOMAIN}/api/missions')
             response_json = await response.json()
             incomplete_mission_ids = [mission['id'] for mission in response_json if (not mission['isCompleted']
                                                                                      and mission['autocomplete'])]
@@ -227,7 +231,7 @@ class Tapper:
     async def do_mission(self, http_client: aiohttp.ClientSession, id):
         try:
             json = {'missionId': id}
-            response = await http_client.post(url=f'{HEXA_DOMAIN}/api/mission-complete', json=json, ssl=False)
+            response = await http_client.post(url=f'{HEXA_DOMAIN}/api/mission-complete', json=json)
             response_json = await response.json()
             if not response_json.get('success'):
                 return False
@@ -237,7 +241,7 @@ class Tapper:
 
     async def get_level_info(self, http_client: aiohttp.ClientSession):
         try:
-            response = await http_client.get(url=f'{HEXA_DOMAIN}/api/level', ssl=False)
+            response = await http_client.get(url=f'{HEXA_DOMAIN}/api/level')
             response_json = await response.json()
             lvl = response_json.get('lvl')
             upgrade_available = response_json.get('upgrade_available', None)
@@ -249,7 +253,7 @@ class Tapper:
 
     async def level_up(self, http_client: aiohttp.ClientSession):
         try:
-            response = await http_client.post(url=f'{HEXA_DOMAIN}/api/upgrade-level', ssl=False)
+            response = await http_client.post(url=f'{HEXA_DOMAIN}/api/upgrade-level')
             response_json = await response.json()
             if not response_json.get('success'):
                 return False
@@ -259,13 +263,11 @@ class Tapper:
 
     async def play_game_1(self, http_client: aiohttp.ClientSession):
         try:
-            response = await http_client.get(url=f'{HEXA_DOMAIN}/api/in-game-reward-available/1/'
-                                                 f'{self.user_id}', ssl=False)
+            response = await http_client.get(url=f'{HEXA_DOMAIN}/api/in-game-reward-available/1/{self.user_id}')
             response_json = await response.json()
             if response_json.get('available'):
                 json = {"game_id": 1, "user_id": self.user_id}
-                response1 = await http_client.post(url=f'{HEXA_DOMAIN}/api/in-game-reward', json=json,
-                                                   ssl=False)
+                response1 = await http_client.post(url=f'{HEXA_DOMAIN}/api/in-game-reward', json=json)
                 if response1.status in (200, 201):
                     return True
             else:
@@ -276,13 +278,11 @@ class Tapper:
 
     async def play_game_2(self, http_client: aiohttp.ClientSession):
         try:
-            response = await http_client.get(url=f'{HEXA_DOMAIN}/api/in-game-reward-available/2/'
-                                                 f'{self.user_id}', ssl=False)
+            response = await http_client.get(url=f'{HEXA_DOMAIN}/api/in-game-reward-available/2/{self.user_id}')
             response_json = await response.json()
             if response_json.get('available'):
                 json = {"game_id": 2, "user_id": self.user_id}
-                response1 = await http_client.post(url=f'{HEXA_DOMAIN}/api/in-game-reward', json=json,
-                                                   ssl=False)
+                response1 = await http_client.post(url=f'{HEXA_DOMAIN}/api/in-game-reward', json=json)
                 if response1.status in (200, 201):
                     return True
             else:
@@ -293,9 +293,9 @@ class Tapper:
 
     async def play_game_3(self, http_client: aiohttp.ClientSession):
         try:
-            response = await http_client.post(url=f'https://ago-api.hexacore.io/api/games/3/sessions/start', ssl=False)
+            response = await http_client.post(url=f'https://ago-api.hexacore.io/api/games/3/sessions/start')
             response = await http_client.get(url=f'https://dirty-job-server.hexacore.io/game/start?'
-                                                 f'playerId={self.user_id}', ssl=False)
+                                                 f'playerId={self.user_id}')
             text = await response.text()
             response.raise_for_status()
             response_json = await response.json()
@@ -308,7 +308,7 @@ class Tapper:
                 json = {"type": "EndGameLevelEvent", "playerId": str(self.user_id), "level": int(i), "boosted": False,
                         "transactionId": None}
                 response1 = await http_client.post(url=f'https://dirty-job-server.hexacore.io/game/end-game-level',
-                                                   json=json, ssl=False)
+                                                   json=json)
 
                 if response1.status in (200, 201):
                     logger.info(self.log_message(f"Done {i} lvl in dirty job"))
@@ -346,7 +346,7 @@ class Tapper:
                         }
                         purchase_response = await http_client.post(
                             url='https://dirty-job-server.hexacore.io/game/upgrade-hub-item',
-                            json=purchase_data, ssl=False)
+                            json=purchase_data)
 
                         if purchase_response.status in (200, 201):
                             logger.success(self.log_message(f"Purchased new item {item_name} for {price} currency "
@@ -381,7 +381,7 @@ class Tapper:
                             }
                             purchase_response = await http_client.post(
                                 url='https://dirty-job-server.hexacore.io/game/upgrade-hub-item',
-                                json=purchase_data, ssl=False)
+                                json=purchase_data)
 
                             if purchase_response.status in (200, 201):
                                 logger.success(self.log_message(f"Purchased upgrade for {item_name} for {price} "
@@ -401,14 +401,12 @@ class Tapper:
 
     async def play_game_5(self, http_client: aiohttp.ClientSession):
         try:
-            response = await http_client.post(f"{HEXA_DOMAIN}/api/games/5/sessions/start", ssl=False)
-            response = await http_client.get(url=f'{HEXA_DOMAIN}/api/in-game-reward-available/5/'
-                                                 f'{self.user_id}', ssl=False)
+            response = await http_client.post(f"{HEXA_DOMAIN}/api/games/5/sessions/start")
+            response = await http_client.get(url=f'{HEXA_DOMAIN}/api/in-game-reward-available/5/{self.user_id}')
             response_json = await response.json()
             if response_json.get('available'):
                 json = {"game_id": 5, "user_id": self.user_id}
-                response1 = await http_client.post(url=f'{HEXA_DOMAIN}/api/in-game-reward', json=json,
-                                                   ssl=False)
+                response1 = await http_client.post(url=f'{HEXA_DOMAIN}/api/in-game-reward', json=json)
                 if response1.status in (200, 201):
                     return True
             else:
@@ -421,11 +419,11 @@ class Tapper:
         try:
             old_auth = http_client.headers['Authorization']
 
-            response = await http_client.post("https://ago-api.hexacore.io/api/games/6/sessions/start", ssl=False)
+            response = await http_client.post("https://ago-api.hexacore.io/api/games/6/sessions/start")
 
             http_client.headers['Authorization'] = str(self.user_id)
 
-            response = await http_client.get(url=f'https://hurt-me-please-server.hexacore.io/game/start', ssl=False)
+            response = await http_client.get(url=f'https://hurt-me-please-server.hexacore.io/game/start')
             response.raise_for_status()
             response_json = await response.json()
 
@@ -447,7 +445,7 @@ class Tapper:
                         "transactionId": None}
 
                 response1 = await http_client.post(url=f'https://hurt-me-please-server.hexacore.io/game/event',
-                                                   json=json, ssl=False)
+                                                   json=json)
 
                 if response1.status in (200, 201):
                     logger.info(self.log_message(f"Done {current_level} lvl in Hurt me please"))
@@ -466,7 +464,7 @@ class Tapper:
 
     async def daily_checkin(self, http_client: aiohttp.ClientSession):
         try:
-            response = await http_client.get(url=f'{HEXA_DOMAIN}/api/daily-checkin', ssl=False)
+            response = await http_client.get(url=f'{HEXA_DOMAIN}/api/daily-checkin')
             response_json = await response.json()
 
             status = response_json.get('is_available')
@@ -475,7 +473,7 @@ class Tapper:
             if status is True:
                 json_payload = {"day": next_day}
                 response_daily = await http_client.post(url=f'{HEXA_DOMAIN}/api/daily-checkin',
-                                                        json=json_payload, ssl=False)
+                                                        json=json_payload)
                 response_json_daily = await response_daily.json()
                 if response_json_daily.get('success') is True:
                     return True, next_day
@@ -488,7 +486,7 @@ class Tapper:
 
     async def get_tap_passes(self, http_client: aiohttp.ClientSession):
         try:
-            response = await http_client.get(url=f'{HEXA_DOMAIN}/api/get-tap-passes', ssl=False)
+            response = await http_client.get(url=f'{HEXA_DOMAIN}/api/get-tap-passes')
             response_json = await response.json()
             return response_json
         except Exception as error:
@@ -497,8 +495,7 @@ class Tapper:
     async def buy_tap_pass(self, http_client: aiohttp.ClientSession):
         try:
             json = {"name": "7_days"}
-            response = await http_client.post(url=f'{HEXA_DOMAIN}/api/buy-tap-passes', json=json,
-                                              ssl=False)
+            response = await http_client.post(url=f'{HEXA_DOMAIN}/api/buy-tap-passes', json=json)
             response_json = await response.json()
             if response_json.get('status') is False:
                 return False
@@ -542,7 +539,6 @@ class Tapper:
                 proxy_conn.close()
             return
 
-        http_client.headers['Authorization'] = await self.auth(http_client=http_client, init_data=init_data)
         while True:
             try:
                 await self.register(http_client=http_client, init_data=init_data, ref_id=ref_id)
@@ -570,7 +566,7 @@ class Tapper:
                             if status:
                                 logger.success(self.log_message(f"Used booster"))
 
-                        logger.info(self.log_message(f"{taps} taps available, starting clicking, please.."))
+                        logger.info(self.log_message(f"{taps} taps available, starting clicking"))
                         status = await self.do_taps(http_client=http_client, taps=taps)
                         if status:
                             logger.success(self.log_message(f"Successfully tapped {taps} times"))
@@ -631,6 +627,10 @@ class Tapper:
 
             except InvalidSession as error:
                 raise error
+
+            except ConnectionError as error:
+                log_error(self.log_message(f"{error}. Sleep 60 minutes"))
+                await asyncio.sleep(3600)
 
             except Exception as error:
                 log_error(self.log_message(f"Unknown error: {error}"))
