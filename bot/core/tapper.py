@@ -1,5 +1,3 @@
-import datetime
-
 import aiohttp
 import asyncio
 import fasteners
@@ -9,6 +7,7 @@ from urllib.parse import unquote
 from aiocfscrape import CloudflareScraper
 from aiohttp_proxy import ProxyConnector
 from better_proxy import Proxy
+from time import time
 
 from telethon import TelegramClient
 from telethon.errors import *
@@ -41,6 +40,8 @@ class Tapper:
         self.headers['User-Agent'] = self.check_user_agent()
         self.headers.update(**get_sec_ch_ua(self.headers.get('User-Agent', '')))
 
+        self._webview_data = None
+
     def log_message(self, message) -> str:
         return f"<light-yellow>{self.session_name}</light-yellow> | {message}"
 
@@ -64,27 +65,27 @@ class Tapper:
         data = None, None
         with self.lock:
             async with self.tg_client as client:
-                while True:
-                    try:
-                        resolve_result = await client(contacts.ResolveUsernameRequest(username='HexacoinBot'))
-                        peer = InputPeerUser(user_id=resolve_result.peer.user_id,
-                                             access_hash=resolve_result.users[0].access_hash)
-                        break
-                    except FloodWaitError as fl:
-                        fls = fl.seconds
+                if not self._webview_data:
+                    while True:
+                        try:
+                            resolve_result = await client(contacts.ResolveUsernameRequest(username='HexacoinBot'))
+                            user = resolve_result.users[0]
+                            peer = InputPeerUser(user_id=user.id, access_hash=user.access_hash)
+                            input_user = InputUser(user_id=user.id, access_hash=user.access_hash)
+                            input_bot_app = InputBotAppShortName(bot_id=input_user, short_name="wallet")
+                            self._webview_data = {'peer': peer, 'app': input_bot_app}
+                            break
+                        except FloodWaitError as fl:
+                            fls = fl.seconds
 
-                        logger.warning(self.log_message(f"FloodWait {fl}"))
-                        logger.info(self.log_message(f"Sleep {fls}s"))
-                        await asyncio.sleep(fls + 3)
+                            logger.warning(self.log_message(f"FloodWait {fl}"))
+                            logger.info(self.log_message(f"Sleep {fls}s"))
+                            await asyncio.sleep(fls + 3)
 
                 ref_id = settings.REF_ID if random.randint(0, 100) <= 85 else "525256526"
 
-                input_user = InputUser(user_id=resolve_result.peer.user_id, access_hash=resolve_result.users[0].access_hash)
-                input_bot_app = InputBotAppShortName(bot_id=input_user, short_name="wallet")
-
                 web_view = await client(messages.RequestAppWebViewRequest(
-                    peer=peer,
-                    app=input_bot_app,
+                    **self._webview_data,
                     platform='android',
                     write_allowed=True,
                     start_param=ref_id
@@ -487,14 +488,15 @@ class Tapper:
         except Exception as error:
             log_error(self.log_message(f"Error while getting tap passes {error}"))
 
-    async def check_proxy(self, http_client: aiohttp.ClientSession, proxy: str) -> bool:
+    async def check_proxy(self, http_client: aiohttp.ClientSession) -> bool:
+        proxy_conn = http_client._connector
         try:
-            response = await http_client.get(url='https://httpbin.org/ip', timeout=aiohttp.ClientTimeout(5))
-            ip = (await response.json()).get('origin')
-            logger.info(self.log_message(f"Proxy IP: {ip}"))
+            response = await http_client.get(url='https://ifconfig.me/ip', timeout=aiohttp.ClientTimeout(15))
+            logger.info(self.log_message(f"Proxy IP: {await response.text()}"))
             return True
         except Exception as error:
-            log_error(self.log_message(f"Proxy: {proxy} | Error: {error}"))
+            proxy_url = f"{proxy_conn._proxy_type}://{proxy_conn._proxy_host}:{proxy_conn._proxy_port}"
+            log_error(self.log_message(f"Proxy: {proxy_url} | Error: {type(error).__name__}"))
             return False
 
     async def run(self) -> None:
@@ -502,124 +504,124 @@ class Tapper:
         logger.info(self.log_message(f"Bot will start in <ly>{random_delay}s</ly>"))
         await asyncio.sleep(random_delay)
 
-        proxy_conn = None
-        if self.proxy:
-            proxy_conn = ProxyConnector().from_url(self.proxy)
-            http_client = CloudflareScraper(headers=self.headers, connector=proxy_conn)
-            p_type = proxy_conn._proxy_type
-            p_host = proxy_conn._proxy_host
-            p_port = proxy_conn._proxy_port
-            if not await self.check_proxy(http_client=http_client, proxy=f"{p_type}://{p_host}:{p_port}"):
-                return
-        else:
-            http_client = CloudflareScraper(headers=self.headers)
+        access_token_created_time = 0
+        init_data = None
 
-        init_data, ref_id = await self.get_tg_web_data()
-
-        if not init_data:
-            if not http_client.closed:
-                await http_client.close()
-            if proxy_conn and not proxy_conn.closed:
-                proxy_conn.close()
-            return
+        token_live_time = random.randint(3500, 3600)
 
         while True:
-            try:
-                await self.register(http_client=http_client, init_data=init_data, ref_id=ref_id)
+            proxy_conn = {'connector': ProxyConnector.from_url(self.proxy)} if self.proxy else {}
+            async with CloudflareScraper(headers=self.headers, timeout=aiohttp.ClientTimeout(60), **proxy_conn) as http_client:
+                if not await self.check_proxy(http_client=http_client):
+                    logger.warning(self.log_message('Failed to connect to proxy server. Sleep 5 minutes.'))
+                    await asyncio.sleep(300)
+                    continue
 
-                info = await self.get_balance(http_client=http_client)
-                balance = info.get("balance") or 0
-                logger.info(self.log_message(f'Balance: {balance}'))
+                try:
+                    sleep_time = random.uniform(3500, 3600)
+                    if time() - access_token_created_time >= token_live_time:
+                        init_data, ref_id = await self.get_tg_web_data()
 
-                status, next_day = await self.daily_checkin(http_client=http_client)
-                if status is True and next_day is not None:
-                    logger.success(self.log_message(f'Daily checkin claimed, streak - {next_day}'))
+                        if not init_data:
+                            raise InvalidSession('Failed to get webview URL')
 
-                if settings.AUTO_BUY_PASS:
-                    data = await self.get_tap_passes(http_client=http_client)
-                    if data.get('active_tap_pass') is None and balance >= 1000:
-                        status = await self.buy_tap_pass(http_client=http_client)
-                        if status:
-                            logger.success(self.log_message(f'Bought taps pass for 7 days'))
+                    access_token_created_time = time()
 
-                if settings.AUTO_TAP:
-                    taps, boosters = await self.get_taps(http_client=http_client)
-                    if taps != 0:
-                        if boosters != 0:
-                            status = await self.use_booster(http_client)
-                            if status:
-                                logger.success(self.log_message(f"Used booster"))
+                    await self.register(http_client=http_client, init_data=init_data, ref_id=ref_id)
 
-                        logger.info(self.log_message(f"{taps} taps available, starting clicking"))
-                        status = await self.do_taps(http_client=http_client, taps=taps)
-                        if status:
-                            logger.success(self.log_message(f"Successfully tapped {taps} times"))
-                        else:
-                            logger.warning(self.log_message(f"Problem with taps"))
-
-                if settings.AUTO_MISSION:
-                    missions = await self.get_missions(http_client=http_client)
-                    missions.sort()
-                    for mission in missions:
-                        status = await self.do_mission(http_client=http_client, id=mission)
-                        if status:
-                            logger.info(self.log_message(f"Successfully done mission {mission}"))
-                        await asyncio.sleep(random.uniform(0.5, 1))
-
-                if settings.AUTO_LVL_UP:
                     info = await self.get_balance(http_client=http_client)
                     balance = info.get("balance") or 0
-                    lvl, available, price, new_lvl = await self.get_level_info(http_client=http_client)
-                    if available and price <= balance:
-                        if new_lvl:
-                            status = await self.level_up(http_client=http_client)
+                    logger.info(self.log_message(f'Balance: {balance}'))
+
+                    status, next_day = await self.daily_checkin(http_client=http_client)
+                    if status is True and next_day is not None:
+                        logger.success(self.log_message(f'Daily checkin claimed, streak - {next_day}'))
+
+                    if settings.AUTO_BUY_PASS:
+                        data = await self.get_tap_passes(http_client=http_client)
+                        if data.get('active_tap_pass') is None and balance >= 1000:
+                            status = await self.buy_tap_pass(http_client=http_client)
                             if status:
-                                logger.success(self.log_message(f"Successfully level up, now {new_lvl} lvl available"))
+                                logger.success(self.log_message(f'Bought taps pass for 7 days'))
+
+                    if settings.AUTO_TAP:
+                        taps, boosters = await self.get_taps(http_client=http_client)
+                        if taps != 0:
+                            if boosters != 0:
+                                status = await self.use_booster(http_client)
+                                if status:
+                                    logger.success(self.log_message(f"Used booster"))
+
+                            logger.info(self.log_message(f"{taps} taps available, starting clicking"))
+                            status = await self.do_taps(http_client=http_client, taps=taps)
+                            if status:
+                                logger.success(self.log_message(f"Successfully tapped {taps} times"))
+                            else:
+                                logger.warning(self.log_message(f"Problem with taps"))
+
+                    if settings.AUTO_MISSION:
+                        missions = await self.get_missions(http_client=http_client)
+                        missions.sort()
+                        for mission in missions:
+                            status = await self.do_mission(http_client=http_client, id=mission)
+                            if status:
+                                logger.info(self.log_message(f"Successfully done mission {mission}"))
+                            await asyncio.sleep(random.uniform(0.5, 1))
+
+                    if settings.AUTO_LVL_UP:
+                        info = await self.get_balance(http_client=http_client)
+                        balance = info.get("balance") or 0
+                        lvl, available, price, new_lvl = await self.get_level_info(http_client=http_client)
+                        if available and price <= balance:
+                            if new_lvl:
+                                status = await self.level_up(http_client=http_client)
+                                if status:
+                                    logger.success(self.log_message(f"Successfully level up, now {new_lvl} lvl available"))
+                            else:
+                                logger.info(self.log_message(f"You reached max lvl - 25"))
+
+                    if settings.PLAY_WALK_GAME:
+                        status = await self.play_game_1(http_client=http_client)
+                        if status:
+                            logger.info(self.log_message(f"Successfully played walk game"))
                         else:
-                            logger.info(self.log_message(f"You reached max lvl - 25"))
+                            logger.info(self.log_message(f"Walk game cooldown"))
 
-                if settings.PLAY_WALK_GAME:
-                    status = await self.play_game_1(http_client=http_client)
-                    if status:
-                        logger.info(self.log_message(f"Successfully played walk game"))
-                    else:
-                        logger.info(self.log_message(f"Walk game cooldown"))
+                    if settings.PLAY_SHOOT_GAME:
+                        status = await self.play_game_2(http_client=http_client)
+                        if status:
+                            logger.info(self.log_message(f"Successfully played shoot game"))
+                        else:
+                            logger.info(self.log_message(f"Shoot game cooldown"))
 
-                if settings.PLAY_SHOOT_GAME:
-                    status = await self.play_game_2(http_client=http_client)
-                    if status:
-                        logger.info(self.log_message(f"Successfully played shoot game"))
-                    else:
-                        logger.info(self.log_message(f"Shoot game cooldown"))
+                    if settings.PLAY_RPG_GAME:
+                        status = await self.play_game_5(http_client=http_client)
+                        if status:
+                            logger.info(self.log_message(f"Successfully played RPG game"))
+                        else:
+                            logger.info(self.log_message(f"RPG game cooldown"))
 
-                if settings.PLAY_RPG_GAME:
-                    status = await self.play_game_5(http_client=http_client)
-                    if status:
-                        logger.info(self.log_message(f"Successfully played RPG game"))
-                    else:
-                        logger.info(self.log_message(f"RPG game cooldown"))
+                    if settings.PLAY_DIRTY_JOB_GAME:
+                        await self.play_game_3(http_client=http_client)
 
-                if settings.PLAY_DIRTY_JOB_GAME:
-                    await self.play_game_3(http_client=http_client)
+                    if settings.PLAY_HURTMEPLEASE_GAME:
+                        await self.play_game_6(http_client=http_client)
 
-                if settings.PLAY_HURTMEPLEASE_GAME:
-                    await self.play_game_6(http_client=http_client)
+                    logger.info(self.log_message(f"Going sleep 1 hour"))
 
-                logger.info(self.log_message(f"Going sleep 1 hour"))
+                    await asyncio.sleep(sleep_time)
 
-                await asyncio.sleep(3600)
+                except InvalidSession as error:
+                    raise error
 
-            except InvalidSession as error:
-                raise error
+                except ConnectionError as error:
+                    log_error(self.log_message(f"{error}. Sleep 60 minutes"))
+                    await asyncio.sleep(sleep_time)
 
-            except ConnectionError as error:
-                log_error(self.log_message(f"{error}. Sleep 60 minutes"))
-                await asyncio.sleep(3600)
-
-            except Exception as error:
-                log_error(self.log_message(f"Unknown error: {error}"))
-                await asyncio.sleep(delay=3)
-                continue
+                except Exception as error:
+                    log_error(self.log_message(f"Unknown error: {error}"))
+                    await asyncio.sleep(delay=3)
+                    continue
 
 
 async def run_tapper(tg_client: TelegramClient):
