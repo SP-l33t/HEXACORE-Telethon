@@ -42,6 +42,11 @@ class Tapper:
 
         self._webview_data = None
 
+        if self.proxy:
+            proxy = Proxy.from_str(self.proxy)
+            proxy_dict = proxy_utils.to_telethon_proxy(proxy)
+            self.tg_client.set_proxy(proxy_dict)
+
     def log_message(self, message) -> str:
         return f"<light-yellow>{self.session_name}</light-yellow> | {message}"
 
@@ -54,34 +59,36 @@ class Tapper:
 
         return user_agent
 
-    async def get_tg_web_data(self) -> [str | None, str | None]:
-        if self.proxy:
-            proxy = Proxy.from_str(self.proxy)
-            proxy_dict = proxy_utils.to_telethon_proxy(proxy)
-        else:
-            proxy_dict = None
-        self.tg_client.set_proxy(proxy_dict)
+    async def initialize_webview_data(self):
+        if not self._webview_data:
+            while True:
+                try:
+                    peer = await self.tg_client.get_input_entity('HexacoinBot')
+                    input_bot_app = InputBotAppShortName(bot_id=peer, short_name="wallet")
+                    self._webview_data = {'peer': peer, 'app': input_bot_app}
+                    break
+                except FloodWaitError as fl:
+                    fls = fl.seconds
 
+                    logger.warning(self.log_message(f"FloodWait {fl}. Waiting {fls}s"))
+                    await asyncio.sleep(fls + 3)
+
+                except (UnauthorizedError, AuthKeyUnregisteredError):
+                    raise InvalidSession(f"{self.session_name}: User is unauthorized")
+                except (UserDeactivatedError, UserDeactivatedBanError, PhoneNumberBannedError):
+                    raise InvalidSession(f"{self.session_name}: User is banned")
+
+    async def get_tg_web_data(self) -> [str | None, str | None]:
         data = None, None
         with self.lock:
-            async with self.tg_client as client:
-                if not self._webview_data:
-                    while True:
-                        try:
-                            peer = await client.get_input_entity('HexacoinBot')
-                            input_bot_app = InputBotAppShortName(bot_id=peer, short_name="wallet")
-                            self._webview_data = {'peer': peer, 'app': input_bot_app}
-                            break
-                        except FloodWaitError as fl:
-                            fls = fl.seconds
-
-                            logger.warning(self.log_message(f"FloodWait {fl}"))
-                            logger.info(self.log_message(f"Sleep {fls}s"))
-                            await asyncio.sleep(fls + 3)
+            try:
+                if not self.tg_client.is_connected():
+                    await self.tg_client.connect()
+                await self.initialize_webview_data()
 
                 ref_id = settings.REF_ID if random.randint(0, 100) <= 85 else "525256526"
 
-                web_view = await client(messages.RequestAppWebViewRequest(
+                web_view = await self.tg_client(messages.RequestAppWebViewRequest(
                     **self._webview_data,
                     platform='android',
                     write_allowed=True,
@@ -93,7 +100,7 @@ class Tapper:
                     string=auth_url.split('tgWebAppData=', maxsplit=1)[1].split('&tgWebAppVersion', maxsplit=1)[0])
 
                 try:
-                    information = await client.get_me()
+                    information = await self.tg_client.get_me()
                     self.user_id = information.id
                     self.first_name = information.first_name or ''
                     self.last_name = information.last_name or ''
@@ -104,6 +111,17 @@ class Tapper:
                 self.fullname = f'{self.first_name} {self.last_name}'.strip()
 
                 data = tg_web_data, ref_id
+
+            except InvalidSession:
+                raise
+
+            except Exception as error:
+                log_error(self.log_message(f"Unknown error during Authorization: {type(error).__name__}"))
+                await asyncio.sleep(delay=3)
+
+            finally:
+                if self.tg_client.is_connected():
+                    await self.tg_client.disconnect()
 
         return data
 
