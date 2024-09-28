@@ -120,13 +120,10 @@ class Tapper:
 
     async def register(self, http_client: aiohttp.ClientSession, ref_id, init_data):
         try:
-            json = {}
-
-            if not http_client.headers.get('Authorization'):
-                auth_token = await self.auth(http_client=http_client, init_data=init_data)
-                if not auth_token:
-                    raise ConnectionError('Failed to get auth token')
-                http_client.headers['Authorization'] = auth_token
+            auth_token = await self.auth(http_client=http_client, init_data=init_data)
+            if not auth_token:
+                raise ConnectionError('Failed to get auth token')
+            http_client.headers['Authorization'] = auth_token
 
             if self.username != '':
                 json = {
@@ -147,7 +144,7 @@ class Tapper:
                 if response.status in (200, 201):
                     return True
                 if response.status not in (200, 201, 409):
-                    log_error(self.log_message(f"Something wrong with register! {response.status}"))
+                    log_error(self.log_message(f"Something wrong with register! {response.status}. {await response.text()}"))
                     return False
             else:
                 log_error(self.log_message(f"Error while register, please add username to telegram account"))
@@ -209,6 +206,7 @@ class Tapper:
             return incomplete_mission_ids
         except Exception as error:
             log_error(self.log_message(f"Error while get missions {error}"))
+            return []
 
     async def do_mission(self, http_client: aiohttp.ClientSession, id):
         try:
@@ -225,6 +223,7 @@ class Tapper:
         try:
             response = await http_client.get(url=f'{HEXA_DOMAIN}/api/level')
             response_json = await response.json()
+            response.raise_for_status()
             lvl = response_json.get('lvl')
             upgrade_available = response_json.get('upgrade_available', None)
             upgrade_price = response_json.get('upgrade_price', None)
@@ -479,7 +478,7 @@ class Tapper:
             json = {"name": "7_days"}
             response = await http_client.post(url=f'{HEXA_DOMAIN}/api/buy-tap-passes', json=json)
             response_json = await response.json()
-            if response_json.get('status') is False:
+            if not response_json.get('status') or 'tap pass buying limit reached' in response_json.get('error', "").lower():
                 return False
             return True
         except Exception as error:
@@ -516,15 +515,19 @@ class Tapper:
 
                 try:
                     sleep_time = random.uniform(3500, 3600)
-                    if time() - access_token_created_time >= token_live_time:
+                    if time() - access_token_created_time >= token_live_time or not init_data:
                         init_data, ref_id = await self.get_tg_web_data()
 
                         if not init_data:
                             raise InvalidSession('Failed to get webview URL')
 
-                    access_token_created_time = time()
+                        access_token_created_time = time()
 
-                    await self.register(http_client=http_client, init_data=init_data, ref_id=ref_id)
+                    auth = await self.register(http_client=http_client, init_data=init_data, ref_id=ref_id)
+                    if not auth:
+                        logger.warning(self.log_message('Failed to authorize. Retrying in 5 minutes'))
+                        await asyncio.sleep(300)
+                        continue
 
                     info = await self.get_balance(http_client=http_client)
                     balance = info.get("balance") or 0
