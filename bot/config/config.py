@@ -23,6 +23,7 @@ class Settings(BaseSettings):
 
     REF_ID: str = ''
 
+    DISABLE_PROXY_REPLACE: bool = False
     SESSIONS_PER_PROXY: int = 1
     USE_PROXY_FROM_FILE: bool = True
     USE_PROXY_CHAIN: bool = False

@@ -163,7 +163,7 @@ class Tapper:
                 if response.status in (200, 201):
                     return True
                 if response.status not in (200, 201, 409):
-                    log_error(self.log_message(f"Something wrong with register! {response.status}. {await response.text()}"))
+                    log_error(self.log_message(f"Something wrong with register! {response.status}."))
                     return False
             else:
                 log_error(self.log_message(f"Error while register, please add username to telegram account"))
@@ -504,7 +504,10 @@ class Tapper:
             log_error(self.log_message(f"Error while getting tap passes {error}"))
 
     async def check_proxy(self, http_client: aiohttp.ClientSession) -> bool:
-        proxy_conn = http_client._connector
+        proxy_conn = http_client.connector
+        if proxy_conn and not hasattr(proxy_conn, '_proxy_host'):
+            logger.info(self.log_message(f"Running Proxy-less"))
+            return True
         try:
             response = await http_client.get(url='https://ifconfig.me/ip', timeout=aiohttp.ClientTimeout(15))
             logger.info(self.log_message(f"Proxy IP: {await response.text()}"))
