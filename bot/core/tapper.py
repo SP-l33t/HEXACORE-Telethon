@@ -11,13 +11,13 @@ from time import time
 
 from telethon import TelegramClient
 from telethon.errors import *
-from telethon.types import InputUser, InputBotAppShortName, InputPeerUser
-from telethon.functions import messages, contacts
+from telethon.types import InputBotAppShortName
+from telethon.functions import messages
 
 from .agents import generate_random_user_agent
 from .headers import *
 from bot.config import settings
-from bot.utils import logger, log_error, proxy_utils, config_utils, CONFIG_PATH
+from bot.utils import logger, log_error, proxy_utils, config_utils, AsyncInterProcessLock, CONFIG_PATH
 from bot.exceptions import InvalidSession
 
 HEXA_DOMAIN = "https://ago-api.hexacore.io"
@@ -29,7 +29,7 @@ class Tapper:
         self.tg_client = tg_client
         self.config = config_utils.get_session_config(self.session_name, CONFIG_PATH)
         self.proxy = self.config.get('proxy', None)
-        self.lock = fasteners.InterProcessLock(os.path.join(os.path.dirname(CONFIG_PATH), 'lock_files',  f"{self.session_name}.lock"))
+        self.lock = AsyncInterProcessLock(os.path.join(os.path.dirname(CONFIG_PATH), 'lock_files',  f"{self.session_name}.lock"))
         self.user_id = 0
         self.username = None
         self.first_name = None
@@ -37,8 +37,6 @@ class Tapper:
         self.fullname = None
         self.time_end = 0
         self.headers = headers
-        self.headers['User-Agent'] = self.check_user_agent()
-        self.headers.update(**get_sec_ch_ua(self.headers.get('User-Agent', '')))
 
         self._webview_data = None
 
@@ -50,14 +48,15 @@ class Tapper:
     def log_message(self, message) -> str:
         return f"<light-yellow>{self.session_name}</light-yellow> | {message}"
 
-    def check_user_agent(self):
+    async def check_user_agent(self):
         user_agent = self.config.get('user_agent')
         if not user_agent:
             user_agent = generate_random_user_agent()
             self.config['user_agent'] = user_agent
-            config_utils.update_session_config_in_file(self.session_name, self.config, CONFIG_PATH)
+            await config_utils.update_session_config_in_file(self.session_name, self.config, CONFIG_PATH)
 
-        return user_agent
+        self.headers['User-Agent'] = user_agent
+        self.headers.update(**get_sec_ch_ua(user_agent))
 
     async def initialize_webview_data(self):
         if not self._webview_data:
@@ -80,7 +79,7 @@ class Tapper:
 
     async def get_tg_web_data(self) -> [str | None, str | None]:
         data = None, None
-        with self.lock:
+        async with self.lock:
             try:
                 if not self.tg_client.is_connected():
                     await self.tg_client.connect()
@@ -122,7 +121,7 @@ class Tapper:
             finally:
                 if self.tg_client.is_connected():
                     await self.tg_client.disconnect()
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(15)
 
         return data
 
@@ -518,6 +517,7 @@ class Tapper:
             return False
 
     async def run(self) -> None:
+        await self.check_user_agent()
         random_delay = random.randint(1, settings.RANDOM_DELAY_IN_RUN)
         logger.info(self.log_message(f"Bot will start in <ly>{random_delay}s</ly>"))
         await asyncio.sleep(random_delay)
@@ -555,7 +555,7 @@ class Tapper:
 
                     info = await self.get_balance(http_client=http_client)
                     balance = info.get("balance") or 0
-                    logger.info(self.log_message(f'Balance: {balance}'))
+                    logger.info(self.log_message(f'Balance: <lc>{balance}</lc>'))
 
                     status, next_day = await self.daily_checkin(http_client=http_client)
                     if status is True and next_day is not None:
@@ -576,7 +576,7 @@ class Tapper:
                                 if status:
                                     logger.success(self.log_message(f"Used booster"))
 
-                            logger.info(self.log_message(f"{taps} taps available, starting clicking"))
+                            logger.info(self.log_message(f"<lc>{taps}</lc> taps available, starting clicking"))
                             status = await self.do_taps(http_client=http_client, taps=taps)
                             if status:
                                 logger.success(self.log_message(f"Successfully tapped {taps} times"))
@@ -589,7 +589,7 @@ class Tapper:
                         for mission in missions:
                             status = await self.do_mission(http_client=http_client, id=mission)
                             if status:
-                                logger.info(self.log_message(f"Successfully done mission {mission}"))
+                                logger.info(self.log_message(f"Successfully done mission <lc>{mission}</lc>"))
                             await asyncio.sleep(random.uniform(0.5, 1))
 
                     if settings.AUTO_LVL_UP:
@@ -600,7 +600,7 @@ class Tapper:
                             if new_lvl:
                                 status = await self.level_up(http_client=http_client)
                                 if status:
-                                    logger.success(self.log_message(f"Successfully level up, now {new_lvl} lvl available"))
+                                    logger.success(self.log_message(f"Successfully level up, now <lc>{new_lvl}</lc> lvl available"))
                             else:
                                 logger.info(self.log_message(f"You reached max lvl - 25"))
 

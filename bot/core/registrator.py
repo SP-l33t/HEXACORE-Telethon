@@ -46,15 +46,14 @@ async def register_sessions() -> None:
         proxies = proxy_utils.get_unused_proxies(accounts_config, PROXIES_PATH)
         if not proxies:
             raise Exception('No unused proxies left')
-        proxy_str = None
         for prox in proxies:
             if await proxy_utils.check_proxy(prox):
                 proxy_str = prox
                 proxy = proxy_utils.to_telethon_proxy(Proxy.from_str(proxy_str))
                 accounts_data['proxy'] = proxy_str
                 break
-        if not proxy_str:
-            raise Exception('No unused proxies left')
+            else:
+                raise Exception('No unused proxies left')
     else:
         accounts_data['proxy'] = None
 
@@ -75,7 +74,7 @@ async def register_sessions() -> None:
     user_data = await session.get_me()
 
     if user_data:
-        config_utils.write_config_file(accounts_config, CONFIG_PATH)
+        await config_utils.write_config_file(accounts_config, CONFIG_PATH)
         logger.success(
             f'Session added successfully @{user_data.username} | {user_data.first_name} {user_data.last_name}'
         )
