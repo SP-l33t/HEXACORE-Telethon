@@ -11,7 +11,7 @@ from time import time
 
 from telethon import TelegramClient
 from telethon.errors import *
-from telethon.types import InputBotAppShortName
+from telethon.types import InputBotAppShortName, InputUser
 from telethon.functions import messages
 
 from .agents import generate_random_user_agent
@@ -27,63 +27,67 @@ class Tapper:
     def __init__(self, tg_client: TelegramClient):
         self.session_name, _ = os.path.splitext(os.path.basename(tg_client.session.filename))
         self.tg_client = tg_client
-        self.config = config_utils.get_session_config(self.session_name, CONFIG_PATH)
-        self.proxy = self.config.get('proxy', None)
-        self.lock = AsyncInterProcessLock(os.path.join(os.path.dirname(CONFIG_PATH), 'lock_files',  f"{self.session_name}.lock"))
+        self.lock = AsyncInterProcessLock(
+            os.path.join(os.path.dirname(CONFIG_PATH), 'lock_files',  f"{self.session_name}.lock"))
+        self.headers = headers
+
+        session_config = config_utils.get_session_config(self.session_name, CONFIG_PATH)
+
+        if not all(key in session_config for key in ('api_id', 'api_hash', 'user_agent')):
+            logger.critical(self.log_message('CHECK accounts_config.json as it might be corrupted'))
+            exit(-1)
+
+        user_agent = session_config.get('user_agent')
+        self.headers['user-agent'] = user_agent
+        self.headers.update(**get_sec_ch_ua(user_agent))
+
+        self.proxy = session_config.get('proxy')
+        if self.proxy:
+            proxy = Proxy.from_str(self.proxy)
+            proxy_dict = proxy_utils.to_telethon_proxy(proxy)
+            self.tg_client.set_proxy(proxy_dict)
+
         self.user_id = 0
         self.username = None
         self.first_name = None
         self.last_name = None
         self.fullname = None
         self.time_end = 0
-        self.headers = headers
 
         self._webview_data = None
 
-        if self.proxy:
-            proxy = Proxy.from_str(self.proxy)
-            proxy_dict = proxy_utils.to_telethon_proxy(proxy)
-            self.tg_client.set_proxy(proxy_dict)
-
     def log_message(self, message) -> str:
         return f"<light-yellow>{self.session_name}</light-yellow> | {message}"
-
-    async def check_user_agent(self):
-        user_agent = self.config.get('user_agent')
-        if not user_agent:
-            user_agent = generate_random_user_agent()
-            self.config['user_agent'] = user_agent
-            await config_utils.update_session_config_in_file(self.session_name, self.config, CONFIG_PATH)
-
-        self.headers['User-Agent'] = user_agent
-        self.headers.update(**get_sec_ch_ua(user_agent))
 
     async def initialize_webview_data(self):
         if not self._webview_data:
             while True:
                 try:
                     peer = await self.tg_client.get_input_entity('HexacoinBot')
-                    input_bot_app = InputBotAppShortName(bot_id=peer, short_name="wallet")
+                    bot_id = InputUser(user_id=peer.user_id, access_hash=peer.access_hash)
+                    input_bot_app = InputBotAppShortName(bot_id=bot_id, short_name="wallet")
                     self._webview_data = {'peer': peer, 'app': input_bot_app}
                     break
                 except FloodWaitError as fl:
-                    fls = fl.seconds
-
-                    logger.warning(self.log_message(f"FloodWait {fl}. Waiting {fls}s"))
-                    await asyncio.sleep(fls + 3)
-
+                    logger.warning(self.log_message(f"FloodWait {fl}. Waiting {fl.seconds}s"))
+                    await asyncio.sleep(fl.seconds + 3)
                 except (UnauthorizedError, AuthKeyUnregisteredError):
                     raise InvalidSession(f"{self.session_name}: User is unauthorized")
                 except (UserDeactivatedError, UserDeactivatedBanError, PhoneNumberBannedError):
                     raise InvalidSession(f"{self.session_name}: User is banned")
 
     async def get_tg_web_data(self) -> [str | None, str | None]:
+        if self.proxy and not self.tg_client._proxy:
+            logger.critical(self.log_message('Proxy found, but not passed to TelegramClient'))
+            exit(-1)
+
         data = None, None
         async with self.lock:
             try:
                 if not self.tg_client.is_connected():
                     await self.tg_client.connect()
                 await self.initialize_webview_data()
+                await asyncio.sleep(random.uniform(1, 2))
 
                 ref_id = settings.REF_ID if random.randint(0, 100) <= 85 else "525256526"
 
@@ -316,7 +320,7 @@ class Tapper:
                     logger.warning(self.log_message(f"Reached max games for today in dirty job"))
                     break
 
-                await asyncio.sleep(random.uniform(1, 1.5))
+                await asyncio.sleep(random.uniform(2, 5))
 
             balance = response_json.get('playerState').get('inGameCurrencyCount')
             owned_items = response_json.get('playerState').get('hubItems')
@@ -517,9 +521,8 @@ class Tapper:
             return False
 
     async def run(self) -> None:
-        await self.check_user_agent()
-        random_delay = random.randint(1, settings.RANDOM_DELAY_IN_RUN)
-        logger.info(self.log_message(f"Bot will start in <ly>{random_delay}s</ly>"))
+        random_delay = random.uniform(1, settings.RANDOM_DELAY_IN_RUN)
+        logger.info(self.log_message(f"Bot will start in <ly>{int(random_delay)}s</ly>"))
         await asyncio.sleep(random_delay)
 
         access_token_created_time = 0
