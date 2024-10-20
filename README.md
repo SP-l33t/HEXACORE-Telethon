@@ -11,15 +11,20 @@
 > 🇷 🇺 README in russian available [here](README-RU.md)
 
 ## Features  
-|            Feature            | Supported |
-|:-----------------------------:|:---------:|
-|        Multithreading         |     ✅     |
-|   Proxy binding to session    |     ✅     |
-|         Auto tap cube         |     ✅     |
-|        Auto play games        |     ✅     |
-|    Auto missions complete     |     ✅     |
-|         Auto referral         |     ✅     |
-| Support for telethon .session |     ✅     |
+|                 Feature                 | Supported |
+|:---------------------------------------:|:---------:|
+|             Multithreading              |     ✅     |
+|        Proxy binding to session         |     ✅     |
+|              Auto tap cube              |     ✅     |
+|             Auto play games             |     ✅     |
+|         Auto missions complete          |     ✅     |
+|              Auto referral              |     ✅     |
+| Supports telethon AND pyrogram .session |     ✅     |
+
+_Script searches for session files in the following folders:_
+* /sessions
+* /sessions/pyrogram
+* /session/telethon
 
 
 ## [Settings](https://github.com/HiddenCodeDevs/HEXACOREbot/blob/main/.env-example/)
@@ -27,6 +32,7 @@
 |:--------------------------:|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------:|
 |   **API_ID / API_HASH**    |                                                                                   Platform data from which to run the Telegram session (default - android)                                                                                    |
 |   **GLOBAL_CONFIG_PATH**   | Specifies the global path for accounts_config, proxies, sessions. <br/>Specify an absolute path or use an environment variable (default environment variable: **TG_FARM**) <br/>If no environment variable exists, uses the script directory. |
+|        **FIX_CERT**        |                                                                                           Try to fix  SSLCertVerificationError ( True / **False** )                                                                                           |
 |        **AUTO_TAP**        |                                                                                                 Auto tap cube at main window (default - True)                                                                                                 |
 |      **AUTO_MISSION**      |                                                                                            Auto completes missions that available (default - True)                                                                                            |
 |      **AUTO_LVL_UP**       |                                                                                                Auto upgrade your level in bot (default - True)                                                                                                |

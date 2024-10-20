@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     API_HASH: str
     GLOBAL_CONFIG_PATH: str = "TG_FARM"
 
+    FIX_CERT: bool = False
+
     AUTO_TAP: bool = True
     AUTO_MISSION: bool = True
     AUTO_LVL_UP: bool = True
